@@ -1,5 +1,6 @@
 from aws_cdk import (
     CfnParameter,
+    RemovalPolicy,
     Duration,
     Stack,
     aws_iam as _iam,
@@ -8,7 +9,8 @@ from aws_cdk import (
     aws_events_targets as _targets,
     aws_sns as _sns,
     aws_sns_subscriptions as _subs,
-    aws_kms as _kms
+    aws_kms as _kms,
+    aws_s3 as _s3
 )
 from constructs import Construct
 from os import environ
@@ -31,12 +33,31 @@ class SnapshotsCleanupStack(Stack):
                                                    description="Set to -> 1 if all snapshots are to be cleaned. Set to 0 if the last snapshot is NOT to be cleaned ", default="0")
         email_for_notification_param = CfnParameter(self, "email_for_notification", type="String",
                                                     description="Email address to suscribe for reports on executions")
-        s3_bucket_prefix_param = CfnParameter(self, "s3_bucket_name", type="String",
-                                              description="Existing S3 Bucket prefix to send the reports (The Default prefix will be combined with AccountID)")
 
         function_name = "snapshots-maintainer-production"
         role_name = "snapshots-maintainer-ServiceRole"
         account_id = Stack.of(self).account
+
+        # CREATE THE REPORTS HOLDER BUCKET AND ACCESS LOGS BUCKET
+        bucket_encryption = _s3.BucketEncryption.S3_MANAGED
+        removal_policy = RemovalPolicy.RETAIN
+        access_logs_bucket = _s3.Bucket(self, f"AccessLogsBucketFor-ReportHolder",
+                                        encryption=bucket_encryption,
+                                        removal_policy=removal_policy,
+                                        enforce_ssl=True,
+                                        server_access_logs_prefix="this_bucket_access_logs",
+                                        block_public_access=_s3.BlockPublicAccess.BLOCK_ALL
+                                        )
+
+        s3_bucket = _s3.Bucket(self, f"Bucket-ReportHolder",
+                               encryption=bucket_encryption,
+                               removal_policy=removal_policy,
+                               enforce_ssl=True,
+                               object_ownership=_s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
+                               server_access_logs_bucket=access_logs_bucket,
+                               server_access_logs_prefix="logs",
+                               block_public_access=_s3.BlockPublicAccess.BLOCK_ALL
+                               )
 
         # ROLE INLINE POLICIES
         snapshot_access_policy = _iam.PolicyDocument(
@@ -65,7 +86,7 @@ class SnapshotsCleanupStack(Stack):
             statements=[_iam.PolicyStatement(
                 actions=["s3:PutObject"],
                 resources=[
-                    f"arn:aws:s3:::{s3_bucket_prefix_param.value_as_string}{account_id}/*"
+                    s3_bucket.arn_for_objects("*")
                 ]
             )
             ]
@@ -102,7 +123,7 @@ class SnapshotsCleanupStack(Stack):
                                                  "region": region_param.value_as_string,
                                                  "max_days_gold": max_days_param.value_as_string,
                                                  "cleanup_last_snapshot": cleanup_last_snapshot_param.value_as_string,
-                                                 "s3_bucket_name": f"{s3_bucket_prefix_param.value_as_string}{account_id}"
+                                                 "s3_bucket_name": s3_bucket.bucket_name
                                              }
                                              )
 

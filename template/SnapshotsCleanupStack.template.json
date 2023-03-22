@@ -27,10 +27,6 @@
    "Type": "String",
    "Description": "Email address to suscribe for reports on executions"
   },
-  "s3bucketname": {
-   "Type": "String",
-   "Description": "Existing S3 Bucket prefix to send the reports (The Default prefix will be combined with AccountID)"
-  },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
    "Default": "/cdk-bootstrap/hnb659fds/version",
@@ -38,6 +34,173 @@
   }
  },
  "Resources": {
+  "AccessLogsBucketForReportHolderE92B4DE1": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "AccessControl": "LogDeliveryWrite",
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "LoggingConfiguration": {
+     "LogFilePrefix": "this_bucket_access_logs"
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/AccessLogsBucketFor-ReportHolder/Resource"
+   }
+  },
+  "AccessLogsBucketForReportHolderPolicy32BF9363": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "AccessLogsBucketForReportHolderE92B4DE1"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "s3:*",
+       "Condition": {
+        "Bool": {
+         "aws:SecureTransport": "false"
+        }
+       },
+       "Effect": "Deny",
+       "Principal": {
+        "AWS": "*"
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "AccessLogsBucketForReportHolderE92B4DE1",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "AccessLogsBucketForReportHolderE92B4DE1",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/AccessLogsBucketFor-ReportHolder/Policy/Resource"
+   }
+  },
+  "BucketReportHolderE36616CC": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "LoggingConfiguration": {
+     "DestinationBucketName": {
+      "Ref": "AccessLogsBucketForReportHolderE92B4DE1"
+     },
+     "LogFilePrefix": "logs"
+    },
+    "OwnershipControls": {
+     "Rules": [
+      {
+       "ObjectOwnership": "BucketOwnerEnforced"
+      }
+     ]
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    }
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Bucket-ReportHolder/Resource"
+   }
+  },
+  "BucketReportHolderPolicy494D3B78": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "BucketReportHolderE36616CC"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "s3:*",
+       "Condition": {
+        "Bool": {
+         "aws:SecureTransport": "false"
+        }
+       },
+       "Effect": "Deny",
+       "Principal": {
+        "AWS": "*"
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "BucketReportHolderE36616CC",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "BucketReportHolderE36616CC",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Bucket-ReportHolder/Policy/Resource"
+   }
+  },
   "LambdaCleanUpSnapRoleA7A90465": {
    "Type": "AWS::IAM::Role",
    "Properties": {
@@ -137,11 +300,13 @@
           "Fn::Join": [
            "",
            [
-            "arn:aws:s3:::",
             {
-             "Ref": "s3bucketname"
+             "Fn::GetAtt": [
+              "BucketReportHolderE36616CC",
+              "Arn"
+             ]
             },
-            "236667872386/*"
+            "/*"
            ]
           ]
          }
@@ -229,15 +394,7 @@
        "Ref": "cleanuplastsnapshot"
       },
       "s3_bucket_name": {
-       "Fn::Join": [
-        "",
-        [
-         {
-          "Ref": "s3bucketname"
-         },
-         "236667872386"
-        ]
-       ]
+       "Ref": "BucketReportHolderE36616CC"
       },
       "sns_topic_arn": {
        "Ref": "Topicforsnapshotsmaintainerproduction9A4928DA"
@@ -371,7 +528,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02Muw6CMBSGn8W9VJFFZxIXFwLuppRjPNIL6UVDmr67pWjC9F/zHWl1puWOfWzBh7EQ2NPQOcZHUj9UwwyT4MCQtN8DMklDqwUsW9ZGC+RzvmYXiWCyHxgNF6+4Q62WbesbMBKtTSkSeINyNiH9D5k0klGm6gqZmiQSq1Jx0xPypVpN53vLDU5/7DbHSFqw2hu+Uje+1mrA/CHN7J5a7StaHuhp97KIhfHKoQTarvoFH91KahsBAAA="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02MvW7CMBSFn4XduQWy0LVIXbpEgR05zq16SWxHvjYIWX73OjGITN/509lD/Qm7jbxzpfqhGqmDePJSDeL4axrppEaPTuT+ErmG+BXUgH4un6qgsSOpxzsuPgmSGmJrR5yrhe/lazNK3fUS4ncwypM1c7fWDTpNzNklgTc0nvNleF5mJjHoHP3g8pqRBJscnO1Eao6KOIWOlaPpdbv2KYkW2QanyutKH63padmI5uH/rPmoYbeFw+bKRJULxpNGaAv/AQZk7QBOAQAA"
    },
    "Metadata": {
     "aws:cdk:path": "SnapshotsCleanupStack/CDKMetadata/Default"
