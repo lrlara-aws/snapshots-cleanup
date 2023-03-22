@@ -1,0 +1,603 @@
+{
+ "Parameters": {
+  "tagkey": {
+   "Type": "String",
+   "Description": "Tag key present in snapshots: used to filter snapshots list"
+  },
+  "tagvalues": {
+   "Type": "String",
+   "Description": "comma sepparated possible values of the tag_key entered: used to filter snapshots list"
+  },
+  "region": {
+   "Type": "String",
+   "Default": "us-east-1",
+   "Description": "target AWS region: used to filter snapshots list"
+  },
+  "maxdays": {
+   "Type": "String",
+   "Default": "90",
+   "Description": "Max days a snapshot is allowed in account: used to filter snapshots deletion"
+  },
+  "cleanuplastsnapshot": {
+   "Type": "String",
+   "Default": "0",
+   "Description": "Set to -> 1 if all snapshots are to be cleaned. Set to 0 if the last snapshot is NOT to be cleaned "
+  },
+  "emailfornotification": {
+   "Type": "String",
+   "Description": "Email address to suscribe for reports on executions"
+  },
+  "s3bucketname": {
+   "Type": "String",
+   "Description": "Existing S3 Bucket prefix to send the reports (The Default prefix will be combined with AccountID)"
+  },
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Resources": {
+  "LambdaCleanUpSnapRoleA7A90465": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "Role for Lambda snapshots-maintainer-production",
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ],
+    "Policies": [
+     {
+      "PolicyDocument": {
+       "Statement": [
+        {
+         "Action": [
+          "ec2:DeleteSnapshot",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeVolumes",
+          "rds:DeleteDBSnapshot",
+          "rds:DescribeDBSnapshots"
+         ],
+         "Condition": {
+          "ForAllValues:StringEquals": {
+           "aws:TagKeys": [
+            {
+             "Ref": "tagkey"
+            }
+           ],
+           "aws:TagValues": [
+            {
+             "Ref": "tagvalues"
+            }
+           ]
+          }
+         },
+         "Effect": "Allow",
+         "Resource": [
+          {
+           "Fn::Join": [
+            "",
+            [
+             "arn:aws:ec2:",
+             {
+              "Ref": "region"
+             },
+             "::snapshot/*"
+            ]
+           ]
+          },
+          {
+           "Fn::Join": [
+            "",
+            [
+             "arn:aws:rds:",
+             {
+              "Ref": "region"
+             },
+             ":236667872386:snapshot:*"
+            ]
+           ]
+          }
+         ]
+        }
+       ],
+       "Version": "2012-10-17"
+      },
+      "PolicyName": "snapshotAccess"
+     },
+     {
+      "PolicyDocument": {
+       "Statement": [
+        {
+         "Action": "s3:PutObject",
+         "Effect": "Allow",
+         "Resource": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:aws:s3:::",
+            {
+             "Ref": "s3bucketname"
+            },
+            "236667872386/*"
+           ]
+          ]
+         }
+        }
+       ],
+       "Version": "2012-10-17"
+      },
+      "PolicyName": "bucketAccess"
+     }
+    ],
+    "RoleName": "snapshots-maintainer-ServiceRole"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Lambda-CleanUp-Snap-Role/Resource"
+   }
+  },
+  "LambdaCleanUpSnapRoleDefaultPolicyD257D640": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey*",
+        "kms:ReEncrypt*"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "kmskeyforsnapshotsmaintainerproductiontopic103A2292",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "sns:Publish",
+       "Effect": "Allow",
+       "Resource": {
+        "Ref": "Topicforsnapshotsmaintainerproduction9A4928DA"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "LambdaCleanUpSnapRoleDefaultPolicyD257D640",
+    "Roles": [
+     {
+      "Ref": "LambdaCleanUpSnapRoleA7A90465"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Lambda-CleanUp-Snap-Role/DefaultPolicy/Resource"
+   }
+  },
+  "snapshotsmaintainerproduction7A5F9028": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "ZipFile": "import boto3\nfrom botocore import exceptions\nimport datetime\nfrom logging import getLogger, INFO, DEBUG\nfrom os import environ, chdir\nimport csv\n\n# Logger setup\nlogger = getLogger()\nlogger.setLevel(INFO)\n\ndeleted_ebs_snapshots = []\nskipped_ebs_snapshots = []\n\ndeleted_rds_snapshots = []\nskipped_rds_snapshots = []\n\nSUCCESS = \"deleted\"\nFAILURE = \"skipped\"\n\n\ndef proccess_rds_snapshot_arn_for_elegibility(db_snapshot_name):\n    if db_snapshot_name.__contains__(\"tce-replicator-dbsnapshot\") or db_snapshot_name.__contains__(\"tce-replicator-final-dbsnapshot\"):\n        return True\n    else:\n        return False\n\n\ndef send_report_to_s3():\n    ebs_file_name = create_report_files(\"EBS\")\n    rds_file_name = create_report_files(\"RDS\")\n    bucket_name = environ[\"s3_bucket_name\"]\n\n    s3_client = boto3.client('s3')\n    try:\n        s3_client.upload_file(\n            f\"/tmp/{ebs_file_name}\", bucket_name, ebs_file_name)\n        s3_client.upload_file(\n            f\"/tmp/{rds_file_name}\", bucket_name, rds_file_name)\n    except exceptions.ClientError as e:\n        logger.info(f\"Error on Put opperation. Details: {e}\")\n\n\ndef create_report_files(report_type):\n    file_creation_date = datetime.datetime.now().date()\n    chdir('/tmp')\n    filename = f\"{file_creation_date}-{report_type}-report.csv\"\n    file_tmp_path = f\"/tmp/{filename}\"\n    file_handler = open(file_tmp_path, 'w')\n\n    report_list = []\n    if report_type == \"EBS\":\n        fieldnames = ['SnapshotId', 'VolumeId', 'Status', 'Error']\n        writer = csv.DictWriter(file_handler, fieldnames=fieldnames)\n        writer.writeheader()\n        report_list = deleted_ebs_snapshots + skipped_ebs_snapshots\n        writer.writerows(report_list)\n    else:\n        fieldnames = ['DBSnapshotIdentifier',\n                      'DBInstanceIdentifier', 'Status', 'Error']\n        writer = csv.DictWriter(file_handler, fieldnames=fieldnames)\n        writer.writeheader()\n        report_list = deleted_rds_snapshots + skipped_rds_snapshots\n        writer.writerows(report_list)\n\n    file_handler.close()\n\n    return filename\n\n\ndef check_snapshot_count(paginator_array, key):\n    total_snapshot_in_filter = 0\n    for page in paginator_array:\n        total_snapshot_in_filter += len(page[key])\n    return total_snapshot_in_filter\n\n\ndef build_snapshots_report(snapshot, report, snapshot_type, status, failure_reason=\"-\"):\n    if snapshot_type == \"EBS\":\n        snapshot_data = {\"SnapshotId\": snapshot[\"SnapshotId\"],\n                         \"VolumeId\": snapshot[\"VolumeId\"],\n                         \"Status\": status, \"Error\": failure_reason}\n    else:\n        snapshot_data = {\"DBSnapshotIdentifier\": snapshot[\"DBSnapshotIdentifier\"],\n                         \"DBInstanceIdentifier\": snapshot[\"DBInstanceIdentifier\"],\n                         \"Status\": status, \"Error\": failure_reason}\n    report.append(snapshot_data)\n\n\ndef send_notification_on_failure(snapshot_type, total_snapshot_scanned, aws_account_id, skipped_report):\n    # TODO: Pass the bucket/file to reference the file containing the errors details\n    sns = boto3.client(\"sns\")\n    skipped_snapshots_count = len(skipped_report) if len(\n        skipped_report) > 0 else 0\n\n    if skipped_snapshots_count > 0:\n        bucket = environ[\"s3_bucket_name\"]\n        message = f\"Total scanned: {total_snapshot_scanned}\\n Total skipped(Need Attention!.Check today's report in bucket -> {bucket}): {skipped_snapshots_count}\\n\"\n        target_region = environ[\"region\"]\n        sns.publish(\n            TopicArn=environ[\"sns_topic_arn\"],\n            Message=message,\n            Subject=f\"{snapshot_type} snapshot cleanup failures in region: {target_region}, account: {aws_account_id} \"\n        )\n\n        logger.info(f\"Skipped {snapshot_type} Snapshots\")\n        logger.info(skipped_report)\n\n\ndef delete_ebs_snapshots(page_iterator, ec2, aws_account_id, total_ebs_snapshot_count, clean_up_last):\n    now_time = datetime.datetime.now().date()\n    total_snapshot_scanned = 0\n    total_snapshot_cleaned = 0\n\n    snapshot_type = \"EBS\"\n    for page in page_iterator:\n        for snapshot in page['Snapshots']:\n            total_snapshot_scanned += 1\n            snapshot_id = snapshot[\"SnapshotId\"]\n            logger.debug(f\"Proccessing -> {snapshot_id}\")\n            snapshot_creation_date = snapshot['StartTime'].date()\n            logger.debug(f\"Date Created -> {snapshot_creation_date}\")\n            # Calculate the difference\n            existed_since = (now_time - snapshot_creation_date).days\n            logger.debug(f\"On for -> {existed_since} days\")\n            logger.info(f\"{snapshot_id} On for -> {existed_since}\")\n            delete_older_than = int(environ[\"max_days_gold\"])\n            logger.info(f\"delete older than -> {delete_older_than}\")\n            if (existed_since > delete_older_than):\n                try:\n                    logger.debug(f\"Attempting to delete -> {snapshot_id}\")\n                    logger.debug(\n                        f\"total_ebs_snapshot_count -> {total_ebs_snapshot_count}\")\n                    logger.debug(\n                        f\"total_snapshot_cleaned -> {total_snapshot_cleaned}\")\n                    logger.debug(\n                        f\"total_ebs_snapshot_count - total_snapshot_cleaned -> {total_ebs_snapshot_count - total_snapshot_cleaned}\")\n                    logger.debug(f\"clean_up_last -> {clean_up_last}\")\n                    if (total_ebs_snapshot_count - total_snapshot_cleaned) > 1 or ((total_ebs_snapshot_count - total_snapshot_cleaned) == 1 and clean_up_last == \"1\"):\n                        ec2.delete_snapshot(\n                            SnapshotId=snapshot_id)\n                        total_snapshot_cleaned += 1\n                        logger.info(f\"deleted -> {snapshot_id}\")\n                        build_snapshots_report(\n                            snapshot, deleted_ebs_snapshots, snapshot_type, SUCCESS)\n\n                # Catch an exception if the snap is in use\n                except exceptions.ClientError as err:\n                    logger.info(f\"exception deleting -> {snapshot_id}\")\n                    logger.info(f\"error details -> {err}\")\n                    build_snapshots_report(\n                        snapshot, skipped_ebs_snapshots, snapshot_type, FAILURE, f\"{err}\")\n                    continue\n\n    send_report_to_s3()\n    send_notification_on_failure(\"EBS\", total_snapshot_scanned,\n                                 aws_account_id, skipped_ebs_snapshots)\n\n\ndef delete_rds_snapshots(rds_page_iterator, rds, aws_account_id, total_rds_snapshot_count, clean_up_last):\n    now_time = datetime.datetime.now().date()\n    total_snapshot_scanned = 0\n    total_snapshot_cleaned = 0\n\n    snapshot_type = \"RDS\"\n    for page in rds_page_iterator:\n        for snapshot in page['DBSnapshots']:\n            total_snapshot_scanned += 1\n            snapshot_id = snapshot[\"DBSnapshotIdentifier\"]\n            logger.debug(f\"Proccessing -> {snapshot_id}\")\n            snapshot_creation_date = snapshot['SnapshotCreateTime'].date()\n            logger.debug(f\"Date Created -> {snapshot_creation_date}\")\n            # Calculate the difference\n            existed_since = (now_time - snapshot_creation_date).days\n            logger.info(f\"{snapshot_id} On for -> {existed_since} days\")\n            delete_older_than = int(environ[\"max_days_gold\"])\n            if (existed_since > delete_older_than):\n                try:\n                    logger.debug(f\"Attempting to delete -> {snapshot_id}\")\n                    logger.debug(\n                        f\"total_rds_snapshot_count -> {total_rds_snapshot_count}\")\n                    logger.debug(\n                        f\"total_snapshot_cleaned -> {total_snapshot_cleaned}\")\n                    logger.debug(\n                        f\"total_rds_snapshot_count - total_snapshot_cleaned -> {total_rds_snapshot_count - total_snapshot_cleaned}\")\n                    logger.debug(f\"clean_up_last -> {clean_up_last}\")\n\n                    if (total_rds_snapshot_count - total_snapshot_cleaned) > 1 or ((total_rds_snapshot_count - total_snapshot_cleaned) == 1 and clean_up_last == \"1\"):\n                        rds.delete_db_snapshot(\n                            DBSnapshotIdentifier=snapshot_id)\n                        total_snapshot_cleaned += 1\n                        logger.info(f\"deleted -> {snapshot_id}\")\n                        build_snapshots_report(\n                            snapshot, deleted_rds_snapshots, snapshot_type, SUCCESS)\n\n                # Catch an exception if the snap is in use\n                except exceptions.ClientError as err:\n                    logger.info(f\"exception deleting -> {snapshot_id}\")\n                    logger.info(f\"error details -> {err}\")\n                    build_snapshots_report(\n                        snapshot, skipped_rds_snapshots, snapshot_type, FAILURE, f\"{err}\")\n                    continue\n\n    send_report_to_s3()\n    send_notification_on_failure(\"RDS\", total_snapshot_scanned,\n                                 aws_account_id, skipped_rds_snapshots)\n\n\ndef lambda_handler(event, context):\n\n    if \"debug\" in event:\n        logger.setLevel(DEBUG)\n\n    logger.info(event)\n    aws_account_id = context.invoked_function_arn.split(\":\")[4]\n\n    # filters\n    tag_key = environ[\"tag_key\"]\n    tag_values = environ[\"tag_values\"].split(\",\")\n    target_region = environ[\"region\"]\n    clean_up_last = environ[\"cleanup_last_snapshot\"]\n\n    boto3_custom_region_session = boto3.session.Session(\n        region_name=target_region)\n    ec2 = boto3_custom_region_session.client(\"ec2\")\n    rds = boto3_custom_region_session.client(\"rds\")\n\n    ebs_page_iterator = ec2.get_paginator('describe_snapshots').paginate(Filters=[\n        {\"Name\": f\"tag:{tag_key}\", \"Values\": tag_values}])\n\n    total_ebs_snapshot_count = check_snapshot_count(\n        ebs_page_iterator, \"Snapshots\")\n    rds_page_iterator = rds.get_paginator(\n        'describe_db_snapshots').paginate(Filters=[{\"Name\": \"snapshot-type\", \"Values\": [\"manual\"]}])\n\n    total_rds_snapshot_count = check_snapshot_count(\n        rds_page_iterator, \"DBSnapshots\")\n\n    logger.debug(\"All EBS snapshots in list:\")\n    logger.debug(ebs_page_iterator)\n\n    logger.debug(\"All RDS snapshots in list:\")\n    logger.debug(rds_page_iterator)\n\n    logger.info(f\"total snapshots in ebs list {total_ebs_snapshot_count}\")\n    logger.info(f\"total snapshots in rds list {total_rds_snapshot_count}\")\n\n    if total_ebs_snapshot_count > 1 or (total_ebs_snapshot_count == 1 and clean_up_last == \"1\"):\n        delete_ebs_snapshots(ebs_page_iterator, ec2,\n                             aws_account_id, total_ebs_snapshot_count, clean_up_last)\n    else:\n        logger.info(\n            f\"Snapshot in list: Do not clean.\\n No Report sent.\")\n\n    if total_rds_snapshot_count > 1 or (total_rds_snapshot_count == 1 and clean_up_last == 1):\n        delete_rds_snapshots(rds_page_iterator, rds,\n                             aws_account_id, total_rds_snapshot_count, clean_up_last)\n    else:\n        logger.info(\n            f\"Snapshot in list: Do not clean.\\n No Report sent.\")\n"
+    },
+    "Role": {
+     "Fn::GetAtt": [
+      "LambdaCleanUpSnapRoleA7A90465",
+      "Arn"
+     ]
+    },
+    "Environment": {
+     "Variables": {
+      "tag_key": {
+       "Ref": "tagkey"
+      },
+      "tag_values": {
+       "Ref": "tagvalues"
+      },
+      "region": {
+       "Ref": "region"
+      },
+      "max_days_gold": {
+       "Ref": "maxdays"
+      },
+      "cleanup_last_snapshot": {
+       "Ref": "cleanuplastsnapshot"
+      },
+      "s3_bucket_name": {
+       "Fn::Join": [
+        "",
+        [
+         {
+          "Ref": "s3bucketname"
+         },
+         "236667872386"
+        ]
+       ]
+      },
+      "sns_topic_arn": {
+       "Ref": "Topicforsnapshotsmaintainerproduction9A4928DA"
+      }
+     }
+    },
+    "FunctionName": "snapshots-maintainer-production",
+    "Handler": "index.lambda_handler",
+    "MemorySize": 128,
+    "Runtime": "python3.9",
+    "Timeout": 300
+   },
+   "DependsOn": [
+    "LambdaCleanUpSnapRoleDefaultPolicyD257D640",
+    "LambdaCleanUpSnapRoleA7A90465"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/snapshots-maintainer-production/Resource"
+   }
+  },
+  "RuleCloudWatchTsnapshotsmaintainerproduction35D70016": {
+   "Type": "AWS::Events::Rule",
+   "Properties": {
+    "Name": "Daily-trigger-for-snapshotCleanup",
+    "ScheduleExpression": "cron(00 01 ? * * *)",
+    "State": "ENABLED",
+    "Targets": [
+     {
+      "Arn": {
+       "Fn::GetAtt": [
+        "snapshotsmaintainerproduction7A5F9028",
+        "Arn"
+       ]
+      },
+      "Id": "Target0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Rule_CloudWatchT_snapshots-maintainer-production/Resource"
+   }
+  },
+  "RuleCloudWatchTsnapshotsmaintainerproductionAllowEventRuleSnapshotsCleanupStacksnapshotsmaintainerproduction7FE424CA0266A17B": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "snapshotsmaintainerproduction7A5F9028",
+      "Arn"
+     ]
+    },
+    "Principal": "events.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "RuleCloudWatchTsnapshotsmaintainerproduction35D70016",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Rule_CloudWatchT_snapshots-maintainer-production/AllowEventRuleSnapshotsCleanupStacksnapshotsmaintainerproduction7FE424CA"
+   }
+  },
+  "kmskeyforsnapshotsmaintainerproductiontopic103A2292": {
+   "Type": "AWS::KMS::Key",
+   "Properties": {
+    "KeyPolicy": {
+     "Statement": [
+      {
+       "Action": "kms:*",
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::Join": [
+          "",
+          [
+           "arn:",
+           {
+            "Ref": "AWS::Partition"
+           },
+           ":iam::236667872386:root"
+          ]
+         ]
+        }
+       },
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "Description": "kms key to use in snapshots-maintainer-production sns notification",
+    "Enabled": true,
+    "EnableKeyRotation": true
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/kmskey_for_snapshots-maintainer-production_topic/Resource"
+   }
+  },
+  "Topicforsnapshotsmaintainerproduction9A4928DA": {
+   "Type": "AWS::SNS::Topic",
+   "Properties": {
+    "KmsMasterKeyId": {
+     "Fn::GetAtt": [
+      "kmskeyforsnapshotsmaintainerproductiontopic103A2292",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Topic_for_snapshots-maintainer-production/Resource"
+   }
+  },
+  "TopicforsnapshotsmaintainerproductionTokenSubscription14525BBAA": {
+   "Type": "AWS::SNS::Subscription",
+   "Properties": {
+    "Protocol": "email",
+    "TopicArn": {
+     "Ref": "Topicforsnapshotsmaintainerproduction9A4928DA"
+    },
+    "Endpoint": {
+     "Ref": "emailfornotification"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/Topic_for_snapshots-maintainer-production/TokenSubscription:1/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02Muw6CMBSGn8W9VJFFZxIXFwLuppRjPNIL6UVDmr67pWjC9F/zHWl1puWOfWzBh7EQ2NPQOcZHUj9UwwyT4MCQtN8DMklDqwUsW9ZGC+RzvmYXiWCyHxgNF6+4Q62WbesbMBKtTSkSeINyNiH9D5k0klGm6gqZmiQSq1Jx0xPypVpN53vLDU5/7DbHSFqw2hu+Uje+1mrA/CHN7J5a7StaHuhp97KIhfHKoQTarvoFH91KahsBAAA="
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/CDKMetadata/Default"
+   },
+   "Condition": "CDKMetadataAvailable"
+  }
+ },
+ "Conditions": {
+  "CDKMetadataAvailable": {
+   "Fn::Or": [
+    {
+     "Fn::Or": [
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "af-south-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-east-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-northeast-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-northeast-2"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-south-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-southeast-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ap-southeast-2"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "ca-central-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "cn-north-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "cn-northwest-1"
+       ]
+      }
+     ]
+    },
+    {
+     "Fn::Or": [
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-central-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-north-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-south-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-west-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-west-2"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "eu-west-3"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "me-south-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "sa-east-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "us-east-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "us-east-2"
+       ]
+      }
+     ]
+    },
+    {
+     "Fn::Or": [
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "us-west-1"
+       ]
+      },
+      {
+       "Fn::Equals": [
+        {
+         "Ref": "AWS::Region"
+        },
+        "us-west-2"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

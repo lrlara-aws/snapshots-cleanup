@@ -1,0 +1,19 @@
+{
+  "version": "20.0.0",
+  "files": {
+    "2ffcd76005c250fe077c08def00be28ae4126000f72b4ccb35f22893e8a60a6a": {
+      "source": {
+        "path": "SnapshotsCleanupStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "236667872386-current_region": {
+          "bucketName": "cdk-hnb659fds-assets-236667872386-${AWS::Region}",
+          "objectKey": "2ffcd76005c250fe077c08def00be28ae4126000f72b4ccb35f22893e8a60a6a.json",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::236667872386:role/cdk-hnb659fds-file-publishing-role-236667872386-${AWS::Region}"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
