@@ -19,13 +19,6 @@ SUCCESS = "deleted"
 FAILURE = "skipped"
 
 
-def proccess_rds_snapshot_arn_for_elegibility(db_snapshot_name):
-    if db_snapshot_name.__contains__("tce-replicator-dbsnapshot") or db_snapshot_name.__contains__("tce-replicator-final-dbsnapshot"):
-        return True
-    else:
-        return False
-
-
 def send_report_to_s3():
     ebs_file_name = create_report_files("EBS")
     rds_file_name = create_report_files("RDS")
@@ -245,16 +238,17 @@ def lambda_handler(event, context):
     logger.info(f"total snapshots in ebs list {total_ebs_snapshot_count}")
     logger.info(f"total snapshots in rds list {total_rds_snapshot_count}")
 
+    flag_string_value = "TRUE" if clean_up_last == "1" else "FALSE"
     if total_ebs_snapshot_count > 1 or (total_ebs_snapshot_count == 1 and clean_up_last == "1"):
         delete_ebs_snapshots(ebs_page_iterator, ec2,
                              aws_account_id, total_ebs_snapshot_count, clean_up_last)
     else:
         logger.info(
-            f"Snapshot in list: Do not clean.\n No Report sent.")
+            f"EBS Snapshots count: {total_ebs_snapshot_count}. Flag to keep at least ONE snapshot set to: {flag_string_value}. Exiting")
 
     if total_rds_snapshot_count > 1 or (total_rds_snapshot_count == 1 and clean_up_last == 1):
         delete_rds_snapshots(rds_page_iterator, rds,
                              aws_account_id, total_rds_snapshot_count, clean_up_last)
     else:
         logger.info(
-            f"Snapshot in list: Do not clean.\n No Report sent.")
+            f"RDS Snapshots count: {total_rds_snapshot_count}. Flag to keep at least ONE snapshot set to: {flag_string_value}. Exiting")
