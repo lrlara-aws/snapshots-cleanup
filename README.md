@@ -55,3 +55,31 @@ command.
 - `cdk docs` open CDK documentation
 
 # Snapshots Cleanup
+
+##### Note: This function only maintains EBS and RDS snapshots.
+
+## Prerequisites
+
+```
+ - All snapshots *must* be tagged (The tag key:value pair will be provided to the Lambda via ENV vars)
+ - Snapshots must exist in the selected region
+```
+
+## inputs
+
+```
+tag_key: Tag key present in snapshots: used to filter snapshots list
+tag_values: Comma sepparated possible values of the tag_key entered: used to filter snapshots list
+region: target AWS region: used to filter snapshots list, default="us-east-1"
+max_days: Max days a snapshot is allowed in account: used to filter snapshots deletion, default="90"
+cleanup_last_snapshot: Set to -> 1 if all snapshots are to be cleaned. Set to 0 if the last snapshot in account is NOT to be cleaned, default="0"
+email_for_notification: Email address to suscribe for reports on executions
+s3_bucket_name: Existing S3 Bucket prefix to send the reports (The prefix will be combined with AccountID)
+
+```
+
+## triggers
+
+```
+Uses a Daily trigger to perform opperations and cleanu unwanted snapshots in account.
+```
