@@ -61,25 +61,51 @@ class SnapshotsCleanupStack(Stack):
 
         # ROLE INLINE POLICIES
         snapshot_access_policy = _iam.PolicyDocument(
-            statements=[_iam.PolicyStatement(
-                actions=["ec2:DeleteSnapshot",
-                         "ec2:DescribeVolumes",
-                         "ec2:DescribeSnapshots",
-                         "rds:DescribeDBSnapshots",
-                         "rds:DeleteDBSnapshot"
-                         ],
-                resources=[
-                    f"arn:aws:rds:{region_param.value_as_string}:{account_id}:snapshot:*",
-                    f"arn:aws:ec2:{region_param.value_as_string}::snapshot/*"
-                ],
-                conditions={
-                    "ForAllValues:StringEquals": {
-                        "aws:TagKeys": [tag_key_param.value_as_string],
-                        "aws:TagValues": tag_values_param.value_as_string.split(",")
+            statements=[
+                _iam.PolicyStatement(
+                    actions=["ec2:DeleteSnapshot"
+                             ],
+                    resources=[
+                        f"arn:aws:ec2:{region_param.value_as_string}:{account_id}:snapshot/*"
+                    ],
+                    conditions={
+                        "ForAllValues:StringEquals": {
+                            "aws:TagKeys": [tag_key_param.value_as_string],
+                            "aws:TagValues": tag_values_param.value_as_string
+                        }
                     }
-                }
 
-            )
+                ),
+                _iam.PolicyStatement(
+                    actions=[
+                        "ec2:DescribeVolumes",
+                        "ec2:DescribeSnapshots"
+                    ],
+                    resources=["*"],
+                    conditions={
+                        "ForAllValues:StringEquals": {
+                            "aws:TagKeys": [tag_key_param.value_as_string],
+                            "aws:TagValues": tag_values_param.value_as_string
+                        }
+                    }
+
+                ),
+                _iam.PolicyStatement(
+                    actions=[
+                        "rds:DescribeDBSnapshots",
+                        "rds:DeleteDBSnapshot"
+                    ],
+                    resources=[
+                        f"arn:aws:rds:{region_param.value_as_string}:{account_id}:snapshot:*"
+                    ],
+                    conditions={
+                        "ForAllValues:StringEquals": {
+                            "aws:TagKeys": [tag_key_param.value_as_string],
+                            "aws:TagValues": tag_values_param.value_as_string
+                        }
+                    }
+
+                )
             ]
         )
         bucket_access_policy = _iam.PolicyDocument(

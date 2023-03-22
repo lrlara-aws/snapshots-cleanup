@@ -236,10 +236,55 @@
       "PolicyDocument": {
        "Statement": [
         {
+         "Action": "ec2:DeleteSnapshot",
+         "Condition": {
+          "ForAllValues:StringEquals": {
+           "aws:TagKeys": [
+            {
+             "Ref": "tagkey"
+            }
+           ],
+           "aws:TagValues": {
+            "Ref": "tagvalues"
+           }
+          }
+         },
+         "Effect": "Allow",
+         "Resource": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:aws:ec2:",
+            {
+             "Ref": "region"
+            },
+            ":236667872386:snapshot/*"
+           ]
+          ]
+         }
+        },
+        {
          "Action": [
-          "ec2:DeleteSnapshot",
           "ec2:DescribeSnapshots",
-          "ec2:DescribeVolumes",
+          "ec2:DescribeVolumes"
+         ],
+         "Condition": {
+          "ForAllValues:StringEquals": {
+           "aws:TagKeys": [
+            {
+             "Ref": "tagkey"
+            }
+           ],
+           "aws:TagValues": {
+            "Ref": "tagvalues"
+           }
+          }
+         },
+         "Effect": "Allow",
+         "Resource": "*"
+        },
+        {
+         "Action": [
           "rds:DeleteDBSnapshot",
           "rds:DescribeDBSnapshots"
          ],
@@ -250,40 +295,24 @@
              "Ref": "tagkey"
             }
            ],
-           "aws:TagValues": [
-            {
-             "Ref": "tagvalues"
-            }
-           ]
+           "aws:TagValues": {
+            "Ref": "tagvalues"
+           }
           }
          },
          "Effect": "Allow",
-         "Resource": [
-          {
-           "Fn::Join": [
-            "",
-            [
-             "arn:aws:ec2:",
-             {
-              "Ref": "region"
-             },
-             "::snapshot/*"
-            ]
+         "Resource": {
+          "Fn::Join": [
+           "",
+           [
+            "arn:aws:rds:",
+            {
+             "Ref": "region"
+            },
+            ":236667872386:snapshot:*"
            ]
-          },
-          {
-           "Fn::Join": [
-            "",
-            [
-             "arn:aws:rds:",
-             {
-              "Ref": "region"
-             },
-             ":236667872386:snapshot:*"
-            ]
-           ]
-          }
-         ]
+          ]
+         }
         }
        ],
        "Version": "2012-10-17"

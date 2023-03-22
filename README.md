@@ -74,7 +74,6 @@ region: target AWS region: used to filter snapshots list, default="us-east-1"
 max_days: Max days a snapshot is allowed in account: used to filter snapshots deletion, default="90"
 cleanup_last_snapshot: Set to -> 1 if all snapshots are to be cleaned. Set to 0 if the last snapshot in account is NOT to be cleaned, default="0"
 email_for_notification: Email address to suscribe for reports on executions
-s3_bucket_name: Existing S3 Bucket prefix to send the reports (The prefix will be combined with AccountID)
 
 ```
 
@@ -82,4 +81,10 @@ s3_bucket_name: Existing S3 Bucket prefix to send the reports (The prefix will b
 
 ```
 Uses a Daily trigger to perform opperations and cleanu unwanted snapshots in account.
+```
+
+## usage
+
+```
+npx cdk deploy --parameters tagkey=YOUR_SNAPSHOTS_TAG_KEY --parameters tagvalues=YOUR_SANPSHOTS_TAG_VALUES[COMMA SEPPARATED] --parameters emailfornotification=DL_FOR_NOTIFICATIONS
 ```
