@@ -56,7 +56,7 @@ command.
 
 # Snapshots Cleanup
 
-##### Note: This function only maintains EBS and RDS snapshots.
+###### Note: This function only maintains EBS and RDS snapshots.
 
 ## Prerequisites
 
@@ -93,3 +93,12 @@ Uses a Daily trigger to perform opperations and cleanu unwanted snapshots in acc
 ```
 npx cdk deploy --parameters tagkey=YOUR_SNAPSHOTS_TAG_KEY --parameters tagvalues=YOUR_SANPSHOTS_TAG_VALUES[COMMA SEPPARATED] --parameters emailfornotification=DL_FOR_NOTIFICATIONS
 ```
+
+## destroy
+
+```
+npx cdk destroy
+
+```
+
+###### Note: Please note that the destroy action will skip the deletion of the S3 Bucket that holds the deletion reports and it's associated Access Log Bucket
