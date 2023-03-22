@@ -61,6 +61,13 @@ command.
 ## Prerequisites
 
 ```
+install python 3.x from Python bundle [here](https://www.python.org/downloads/) or using [brew](https://docs.brew.sh/Homebrew-and-Python)
+install latest version of the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+install [AWS CDK Toolkit *cdk command*](https://docs.aws.amazon.com/cdk/v2/guide/cli.html)
+make sure you are properly [Configuring the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html)
+```
+
+```
  - All snapshots *must* be tagged (The tag key:value pair will be provided to the Lambda via ENV vars)
  - Snapshots must exist in the selected region
 ```
