@@ -1,4 +1,5 @@
 from aws_cdk import (
+    Fn,
     CfnParameter,
     RemovalPolicy,
     Duration,
@@ -10,7 +11,8 @@ from aws_cdk import (
     aws_sns as _sns,
     aws_sns_subscriptions as _subs,
     aws_kms as _kms,
-    aws_s3 as _s3
+    aws_s3 as _s3,
+    aws_signer as _signer
 )
 from constructs import Construct
 from os import environ
@@ -71,7 +73,7 @@ class SnapshotsCleanupStack(Stack):
                     conditions={
                         "ForAllValues:StringEquals": {
                             "aws:TagKeys": [tag_key_param.value_as_string],
-                            "aws:TagValues": tag_values_param.value_as_string
+                            "aws:TagValues": Fn.split(",", tag_values_param.value_as_string)
                         }
                     }
 
@@ -85,7 +87,7 @@ class SnapshotsCleanupStack(Stack):
                     conditions={
                         "ForAllValues:StringEquals": {
                             "aws:TagKeys": [tag_key_param.value_as_string],
-                            "aws:TagValues": tag_values_param.value_as_string
+                            "aws:TagValues": Fn.split(",", tag_values_param.value_as_string)
                         }
                     }
 
@@ -101,7 +103,7 @@ class SnapshotsCleanupStack(Stack):
                     conditions={
                         "ForAllValues:StringEquals": {
                             "aws:TagKeys": [tag_key_param.value_as_string],
-                            "aws:TagValues": tag_values_param.value_as_string
+                            "aws:TagValues": Fn.split(",", tag_values_param.value_as_string)
                         }
                     }
 
@@ -131,10 +133,18 @@ class SnapshotsCleanupStack(Stack):
                                        "bucketAccess": bucket_access_policy}
                                    )
 
+        # CODE SIGNING CONFIGS
+        signing_profile = _signer.SigningProfile(
+            self, "SigningProfile", platform=_signer.Platform.AWS_LAMBDA_SHA384_ECDSA)
+
+        code_signing_config = _lambda.CodeSigningConfig(
+            self, "CodeSigningConfig", signing_profiles=[signing_profile])
+
         # LAMBDA FUNCTION
         python_code = open("src/lambda_function.py", "r")
         config_json_object = python_code.read()
         lambda_definition = _lambda.Function(self, function_name,
+                                             code_signing_config=code_signing_config,
                                              function_name=function_name,
                                              runtime=_lambda.Runtime.PYTHON_3_9,
                                              handler="index.lambda_handler",

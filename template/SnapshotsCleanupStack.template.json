@@ -245,7 +245,12 @@
             }
            ],
            "aws:TagValues": {
-            "Ref": "tagvalues"
+            "Fn::Split": [
+             ",",
+             {
+              "Ref": "tagvalues"
+             }
+            ]
            }
           }
          },
@@ -276,7 +281,12 @@
             }
            ],
            "aws:TagValues": {
-            "Ref": "tagvalues"
+            "Fn::Split": [
+             ",",
+             {
+              "Ref": "tagvalues"
+             }
+            ]
            }
           }
          },
@@ -296,7 +306,12 @@
             }
            ],
            "aws:TagValues": {
-            "Ref": "tagvalues"
+            "Fn::Split": [
+             ",",
+             {
+              "Ref": "tagvalues"
+             }
+            ]
            }
           }
          },
@@ -393,6 +408,40 @@
     "aws:cdk:path": "SnapshotsCleanupStack/Lambda-CleanUp-Snap-Role/DefaultPolicy/Resource"
    }
   },
+  "SigningProfile2139A0F9": {
+   "Type": "AWS::Signer::SigningProfile",
+   "Properties": {
+    "PlatformId": "AWSLambda-SHA384-ECDSA",
+    "SignatureValidityPeriod": {
+     "Type": "MONTHS",
+     "Value": 135
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/SigningProfile/Resource"
+   }
+  },
+  "CodeSigningConfigD8D41C10": {
+   "Type": "AWS::Lambda::CodeSigningConfig",
+   "Properties": {
+    "AllowedPublishers": {
+     "SigningProfileVersionArns": [
+      {
+       "Fn::GetAtt": [
+        "SigningProfile2139A0F9",
+        "ProfileVersionArn"
+       ]
+      }
+     ]
+    },
+    "CodeSigningPolicies": {
+     "UntrustedArtifactOnDeployment": "Warn"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SnapshotsCleanupStack/CodeSigningConfig/Resource"
+   }
+  },
   "snapshotsmaintainerproduction7A5F9028": {
    "Type": "AWS::Lambda::Function",
    "Properties": {
@@ -403,6 +452,12 @@
      "Fn::GetAtt": [
       "LambdaCleanUpSnapRoleA7A90465",
       "Arn"
+     ]
+    },
+    "CodeSigningConfigArn": {
+     "Fn::GetAtt": [
+      "CodeSigningConfigD8D41C10",
+      "CodeSigningConfigArn"
      ]
     },
     "Environment": {
@@ -557,7 +612,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02MvW7CMBSFn4XduQWy0LVIXbpEgR05zq16SWxHvjYIWX73OjGITN/509lD/Qm7jbxzpfqhGqmDePJSDeL4axrppEaPTuT+ErmG+BXUgH4un6qgsSOpxzsuPgmSGmJrR5yrhe/lazNK3fUS4ncwypM1c7fWDTpNzNklgTc0nvNleF5mJjHoHP3g8pqRBJscnO1Eao6KOIWOlaPpdbv2KYkW2QanyutKH63padmI5uH/rPmoYbeFw+bKRJULxpNGaAv/AQZk7QBOAQAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/2VOy07DMBD8lt4dQ5sLXInEhYuVckeOswlLYrvyA1RF/nfWcaoGcZrZmdndOfH6mR8P8sdXqp+qGTu+nINUE2sGI6STGgI4Rv7H4mu+vEQ1QcjmxgoIO6O63uUyJ4ZS86W1M2RrxXvylvE4GnD0lhDNKJwdsCz8VRKbpe56yZfG9rB5jTUDjjn8X3yNRgW0Jrt7LsBp9J6mxOAbTPDUMW4dY340aZLeYK1JQB0NCe/2gipLhZxj55XDy+3sfk6JteBtdKpc3XEq1+OaYeIaPq15qPnxkT8dvjxi5aIJqIG3BX8Bk4WzC58BAAA="
    },
    "Metadata": {
     "aws:cdk:path": "SnapshotsCleanupStack/CDKMetadata/Default"
