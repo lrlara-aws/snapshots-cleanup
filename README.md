@@ -93,8 +93,6 @@ cleanup_last_snapshot: Set to -> 1 if all snapshots are to be cleaned. Set to 0 
 email_for_notification: Email address to suscribe for reports on executions
 ```
 
-```
-
 ## triggers
 
 ```
@@ -120,4 +118,7 @@ npx cdk destroy
 ```
 
 ###### Note: Please note that the destroy action will skip the deletion of the S3 Bucket that holds the deletion reports and it's associated Access Log Bucket
+
+```
+
 ```
