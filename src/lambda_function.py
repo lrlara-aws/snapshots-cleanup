@@ -9,6 +9,9 @@ import csv
 logger = getLogger()
 logger.setLevel(INFO)
 
+EBS_USECASE = "EBS"
+RDS_USECASE = "RDS"
+
 deleted_ebs_snapshots = []
 skipped_ebs_snapshots = []
 
@@ -18,10 +21,20 @@ skipped_rds_snapshots = []
 SUCCESS = "deleted"
 FAILURE = "skipped"
 
+ebs_object_keys = {"TopLevel": "Snapshots",
+                   "ID": "SnapshotId",
+                   "Time": "StartTime"
+                   }
+
+rds_object_keys = {"TopLevel": "DBSnapshots",
+                   "ID": "DBSnapshotIdentifier",
+                   "Time": "SnapshotCreateTime"
+                   }
+
 
 def send_report_to_s3():
-    ebs_file_name = create_report_files("EBS")
-    rds_file_name = create_report_files("RDS")
+    ebs_file_name = create_report_files(EBS_USECASE)
+    rds_file_name = create_report_files(RDS_USECASE)
     bucket_name = environ["s3_bucket_name"]
 
     s3_client = boto3.client('s3')
@@ -42,7 +55,7 @@ def create_report_files(report_type):
     file_handler = open(file_tmp_path, 'w')
 
     report_list = []
-    if report_type == "EBS":
+    if report_type == EBS_USECASE:
         fieldnames = ['SnapshotId', 'VolumeId', 'Status', 'Error']
         writer = csv.DictWriter(file_handler, fieldnames=fieldnames)
         writer.writeheader()
@@ -69,7 +82,7 @@ def check_snapshot_count(paginator_array, key):
 
 
 def build_snapshots_report(snapshot, report, snapshot_type, status, failure_reason="-"):
-    if snapshot_type == "EBS":
+    if snapshot_type == EBS_USECASE:
         snapshot_data = {"SnapshotId": snapshot["SnapshotId"],
                          "VolumeId": snapshot["VolumeId"],
                          "Status": status, "Error": failure_reason}
@@ -100,18 +113,24 @@ def send_notification_on_failure(snapshot_type, total_snapshot_scanned, aws_acco
         logger.info(skipped_report)
 
 
-def delete_ebs_snapshots(page_iterator, ec2, aws_account_id, total_ebs_snapshot_count, clean_up_last):
+def delete_snapshot(snapshot_type, page_iterator, client, aws_account_id, total_snapshot_count, clean_up_last):
+
     now_time = datetime.datetime.now().date()
     total_snapshot_scanned = 0
     total_snapshot_cleaned = 0
+    snapshots_objects_keys = None
+    if snapshot_type == EBS_USECASE:
+        snapshots_objects_keys = ebs_object_keys
+    else:
+        snapshots_objects_keys = rds_object_keys
 
-    snapshot_type = "EBS"
     for page in page_iterator:
-        for snapshot in page['Snapshots']:
+        for snapshot in page[snapshots_objects_keys["TopLevel"]]:
             total_snapshot_scanned += 1
-            snapshot_id = snapshot["SnapshotId"]
+            snapshot_id = snapshot[snapshots_objects_keys["ID"]]
             logger.debug(f"Proccessing -> {snapshot_id}")
-            snapshot_creation_date = snapshot['StartTime'].date()
+            snapshot_creation_date = snapshot[snapshots_objects_keys["Time"]].date(
+            )
             logger.debug(f"Date Created -> {snapshot_creation_date}")
             # Calculate the difference
             existed_since = (now_time - snapshot_creation_date).days
@@ -123,17 +142,23 @@ def delete_ebs_snapshots(page_iterator, ec2, aws_account_id, total_ebs_snapshot_
                 try:
                     logger.debug(f"Attempting to delete -> {snapshot_id}")
                     logger.debug(
-                        f"total_ebs_snapshot_count -> {total_ebs_snapshot_count}")
+                        f"total_{snapshot_type}_snapshot_count -> {total_snapshot_count}")
                     logger.debug(
-                        f"total_snapshot_cleaned -> {total_snapshot_cleaned}")
+                        f"total_{snapshot_type}_snapshot_cleaned -> {total_snapshot_cleaned}")
                     logger.debug(
-                        f"total_ebs_snapshot_count - total_snapshot_cleaned -> {total_ebs_snapshot_count - total_snapshot_cleaned}")
+                        f"total_{snapshot_type}_snapshot_count - total_{snapshot_type}_snapshot_cleaned -> {total_snapshot_count - total_snapshot_cleaned}")
                     logger.debug(f"clean_up_last -> {clean_up_last}")
-                    if (total_ebs_snapshot_count - total_snapshot_cleaned) > 1 or ((total_ebs_snapshot_count - total_snapshot_cleaned) == 1 and clean_up_last == "1"):
-                        ec2.delete_snapshot(
-                            SnapshotId=snapshot_id)
-                        total_snapshot_cleaned += 1
-                        logger.info(f"deleted -> {snapshot_id}")
+                    if (total_snapshot_count - total_snapshot_cleaned) > 1 or ((total_snapshot_count - total_snapshot_cleaned) == 1 and clean_up_last == "1"):
+                        if snapshot_type == EBS_USECASE:
+                            client.delete_snapshot(
+                                SnapshotId=snapshot_id)
+                            total_snapshot_cleaned += 1
+                            logger.info(f"deleted -> {snapshot_id}")
+                        else:
+                            client.delete_db_snapshot(
+                                DBSnapshotIdentifier=snapshot_id)
+                            total_snapshot_cleaned += 1
+                            logger.info(f"deleted -> {snapshot_id}")
                         build_snapshots_report(
                             snapshot, deleted_ebs_snapshots, snapshot_type, SUCCESS)
 
@@ -146,57 +171,8 @@ def delete_ebs_snapshots(page_iterator, ec2, aws_account_id, total_ebs_snapshot_
                     continue
 
     send_report_to_s3()
-    send_notification_on_failure("EBS", total_snapshot_scanned,
+    send_notification_on_failure(snapshot_type, total_snapshot_scanned,
                                  aws_account_id, skipped_ebs_snapshots)
-
-
-def delete_rds_snapshots(rds_page_iterator, rds, aws_account_id, total_rds_snapshot_count, clean_up_last):
-    now_time = datetime.datetime.now().date()
-    total_snapshot_scanned = 0
-    total_snapshot_cleaned = 0
-
-    snapshot_type = "RDS"
-    for page in rds_page_iterator:
-        for snapshot in page['DBSnapshots']:
-            total_snapshot_scanned += 1
-            snapshot_id = snapshot["DBSnapshotIdentifier"]
-            logger.debug(f"Proccessing -> {snapshot_id}")
-            snapshot_creation_date = snapshot['SnapshotCreateTime'].date()
-            logger.debug(f"Date Created -> {snapshot_creation_date}")
-            # Calculate the difference
-            existed_since = (now_time - snapshot_creation_date).days
-            logger.info(f"{snapshot_id} On for -> {existed_since} days")
-            delete_older_than = int(environ["max_days_gold"])
-            if (existed_since > delete_older_than):
-                try:
-                    logger.debug(f"Attempting to delete -> {snapshot_id}")
-                    logger.debug(
-                        f"total_rds_snapshot_count -> {total_rds_snapshot_count}")
-                    logger.debug(
-                        f"total_snapshot_cleaned -> {total_snapshot_cleaned}")
-                    logger.debug(
-                        f"total_rds_snapshot_count - total_snapshot_cleaned -> {total_rds_snapshot_count - total_snapshot_cleaned}")
-                    logger.debug(f"clean_up_last -> {clean_up_last}")
-
-                    if (total_rds_snapshot_count - total_snapshot_cleaned) > 1 or ((total_rds_snapshot_count - total_snapshot_cleaned) == 1 and clean_up_last == "1"):
-                        rds.delete_db_snapshot(
-                            DBSnapshotIdentifier=snapshot_id)
-                        total_snapshot_cleaned += 1
-                        logger.info(f"deleted -> {snapshot_id}")
-                        build_snapshots_report(
-                            snapshot, deleted_rds_snapshots, snapshot_type, SUCCESS)
-
-                # Catch an exception if the snap is in use
-                except exceptions.ClientError as err:
-                    logger.info(f"exception deleting -> {snapshot_id}")
-                    logger.info(f"error details -> {err}")
-                    build_snapshots_report(
-                        snapshot, skipped_rds_snapshots, snapshot_type, FAILURE, f"{err}")
-                    continue
-
-    send_report_to_s3()
-    send_notification_on_failure("RDS", total_snapshot_scanned,
-                                 aws_account_id, skipped_rds_snapshots)
 
 
 def lambda_handler(event, context):
@@ -240,15 +216,15 @@ def lambda_handler(event, context):
 
     flag_string_value = "TRUE" if clean_up_last == "1" else "FALSE"
     if total_ebs_snapshot_count > 1 or (total_ebs_snapshot_count == 1 and clean_up_last == "1"):
-        delete_ebs_snapshots(ebs_page_iterator, ec2,
-                             aws_account_id, total_ebs_snapshot_count, clean_up_last)
+        delete_snapshot(EBS_USECASE, ebs_page_iterator, ec2,
+                        aws_account_id, total_ebs_snapshot_count, clean_up_last)
     else:
         logger.info(
             f"EBS Snapshots count: {total_ebs_snapshot_count}. Flag to keep at least ONE snapshot set to: {flag_string_value}. Exiting")
 
     if total_rds_snapshot_count > 1 or (total_rds_snapshot_count == 1 and clean_up_last == 1):
-        delete_rds_snapshots(rds_page_iterator, rds,
-                             aws_account_id, total_rds_snapshot_count, clean_up_last)
+        delete_snapshot(RDS_USECASE, rds_page_iterator, rds,
+                        aws_account_id, total_rds_snapshot_count, clean_up_last)
     else:
         logger.info(
             f"RDS Snapshots count: {total_rds_snapshot_count}. Flag to keep at least ONE snapshot set to: {flag_string_value}. Exiting")

@@ -15,7 +15,6 @@ from aws_cdk import (
     aws_signer as _signer
 )
 from constructs import Construct
-from os import environ
 
 
 class SnapshotsCleanupStack(Stack):
