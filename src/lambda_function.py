@@ -23,12 +23,14 @@ FAILURE = "skipped"
 
 ebs_object_keys = {"TopLevel": "Snapshots",
                    "ID": "SnapshotId",
-                   "Time": "StartTime"
+                   "Time": "StartTime",
+                   "VolumeId": "VolumeId"
                    }
 
 rds_object_keys = {"TopLevel": "DBSnapshots",
                    "ID": "DBSnapshotIdentifier",
-                   "Time": "SnapshotCreateTime"
+                   "Time": "SnapshotCreateTime",
+                   "DBInstanceID": "DBInstanceIdentifier"
                    }
 
 
@@ -56,12 +58,14 @@ def create_report_files(report_type):
 
     report_list = []
     if report_type == EBS_USECASE:
+        # EBS csv headers
         fieldnames = ['SnapshotId', 'VolumeId', 'Status', 'Error']
         writer = csv.DictWriter(file_handler, fieldnames=fieldnames)
         writer.writeheader()
         report_list = deleted_ebs_snapshots + skipped_ebs_snapshots
         writer.writerows(report_list)
     else:
+        # RDS csv headers
         fieldnames = ['DBSnapshotIdentifier',
                       'DBInstanceIdentifier', 'Status', 'Error']
         writer = csv.DictWriter(file_handler, fieldnames=fieldnames)
@@ -83,12 +87,12 @@ def check_snapshot_count(paginator_array, key):
 
 def build_snapshots_report(snapshot, report, snapshot_type, status, failure_reason="-"):
     if snapshot_type == EBS_USECASE:
-        snapshot_data = {"SnapshotId": snapshot["SnapshotId"],
-                         "VolumeId": snapshot["VolumeId"],
+        snapshot_data = {"SnapshotId": snapshot[ebs_object_keys["ID"]],
+                         "VolumeId": snapshot[ebs_object_keys["VolumeId"]],
                          "Status": status, "Error": failure_reason}
     else:
-        snapshot_data = {"DBSnapshotIdentifier": snapshot["DBSnapshotIdentifier"],
-                         "DBInstanceIdentifier": snapshot["DBInstanceIdentifier"],
+        snapshot_data = {"DBSnapshotIdentifier": snapshot[rds_object_keys["ID"]],
+                         "DBInstanceIdentifier": snapshot[rds_object_keys["DBInstanceID"]],
                          "Status": status, "Error": failure_reason}
     report.append(snapshot_data)
 
